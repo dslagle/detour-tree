@@ -33,11 +33,11 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="R8CAInterfaces">
-      <HintPath>..\..\..\..\..\..\slagl\Desktop\RMSoftware\Library\R8CAInterfaces.dll</HintPath>
-    </Reference>
     <Reference Include="R8CommonControls">
       <HintPath>J:\Library\R8CommonControls.dll</HintPath>
+    </Reference>
+    <Reference Include="R8Detours">
+      <HintPath>J:\Library\R8Detours.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />

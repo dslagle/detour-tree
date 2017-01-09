@@ -18,7 +18,6 @@ using System.Drawing;
 using System.Windows.Forms;
 
 using RM = RouteMatch.Common.UI.CommonControls.Generic;
-using RouteMatch.CA.VisualHeadways.Model;
 using RouteMatch.CA.DayOfDetour.Model;
 using System.ComponentModel;
 
@@ -29,15 +28,6 @@ namespace DetourList
     /// </summary>
     class DetourSelectionList : Control
     {
-        /// <summary>
-        /// Occurs when the selection has been changed
-        /// </summary>
-        public event Action<List<Subroute>, List<Subroute>> SelectionChanged;
-        private void FireSelectionChanged(List<Subroute> added, List<Subroute> removed)
-        {
-            SelectionChanged?.Invoke(added, removed);
-        }
-        
         private List<IListItem> m_MasterRouteItems = new List<IListItem>();
         private IListItem _HotItem = null;
 
@@ -80,6 +70,7 @@ namespace DetourList
             m_Scroll.Scroll += (i) => { HandleScroll(i); };
 
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+            SetStyle(ControlStyles.StandardDoubleClick, false);
         }
 
         public void RenderModel(Detour model)
@@ -239,8 +230,6 @@ namespace DetourList
             //render each item
             foreach (var m in m_MasterRouteItems)
             {
-                var mr = m.GetItem<MasterRoute>();
-
                 y = m.Paint(
                     e.Graphics,
                     new Rectangle(PADDING, y, itemWidth, ITEM_HEIGHT),
@@ -311,15 +300,7 @@ namespace DetourList
             IListItem item = ItemAt(e.Location);
 
             if (item == null) return;
-
-            //if the expand box was clicked, toggle the expansion state of the item
-            if (item.ExpandBox.Contains(e.Location) && item.Children.Count > 0)
-                item.Expanded = !item.Expanded;
-            else
-            {
-                SelectListItem(item, false);
-            }
-
+            
             item.HandleMouseClick(e);
         }
 
@@ -391,7 +372,7 @@ namespace DetourList
 
             if ((added.Count > 0 || removed.Count > 0) && !SupressEvent)
             {
-                FireSelectionChanged(added.Select(a => a.GetItem<Subroute>()).ToList(), removed.Select(a => a.GetItem<Subroute>()).ToList());
+                //FireSelectionChanged(added.Select(a => a.GetItem<Subroute>()).ToList(), removed.Select(a => a.GetItem<Subroute>()).ToList());
             }
         }
     }
@@ -867,7 +848,19 @@ namespace DetourList
 
         public virtual void HandleMouseMove(MouseEventArgs e) { }
 
-        public virtual void HandleMouseClick(MouseEventArgs e) { }
+        public virtual void HandleMouseClick(MouseEventArgs e)
+        {
+            //if the expand box was clicked, toggle the expansion state of the item
+            if (ExpandBox.Contains(e.Location) && Children.Count > 0)
+            {
+                Expanded = !Expanded;
+                FireInvalidate();
+            }
+            else
+            {
+                Selected = Item is DetourMasterRoute ? ListItemSelectionState.Partial : ListItemSelectionState.Selected;
+            }
+        }
         
         public void Unselect()
         {
@@ -976,7 +969,7 @@ namespace DetourList
         }
         internal static void RenderCancelButton(Graphics g, Rectangle bounds, Pen pen, Brush brush)
         {
-            int Space = 4;
+            int Space = 3;
 
             g.FillRectangle(brush, bounds);
             g.DrawRectangle(Pens.Black, bounds);
@@ -1010,21 +1003,21 @@ namespace DetourList
             set { }
         }
 
-        public override ListItemSelectionState Selected
-        {
-            get
-            {
-                int childCount = GetChildCount();
-                int selectedChildCount = GetSelectedChildCount();
+        //public override ListItemSelectionState Selected
+        //{
+        //    get
+        //    {
+        //        int childCount = GetChildCount();
+        //        int selectedChildCount = GetSelectedChildCount();
 
-                return childCount == selectedChildCount
-                    ? ListItemSelectionState.Selected
-                    : selectedChildCount > 0
-                        ? ListItemSelectionState.Partial
-                        : ListItemSelectionState.None;
-            }
-            set { }
-        }
+        //        return childCount == selectedChildCount
+        //            ? ListItemSelectionState.Selected
+        //            : selectedChildCount > 0
+        //                ? ListItemSelectionState.Partial
+        //                : ListItemSelectionState.None;
+        //    }
+        //    set { }
+        //}
     }
 
     internal class SubrouteListItem : ListItem<DetourSubroute>
@@ -1036,17 +1029,16 @@ namespace DetourList
             get { return Item.Name; }
             set { }
         }
-
-        public override ListItemSelectionState Selected
-        {
-            get { return Checked ? ListItemSelectionState.Selected : ListItemSelectionState.None; }
-            set { }
-        }
     }
 
     internal class StopListItem : ListItem<DetourStop>
     {
         private Rectangle _CancelBox = new Rectangle();
+
+        private static readonly Color CanceledColor = Color.FromArgb(155, 52, 48);
+        private static readonly Color UncanceledColor = Color.FromArgb(20, 122, 24);
+
+        private bool _CancelButtonHot = false;
 
         public StopListItem(DetourStop stop) : base(stop, stop.Name)
         {
@@ -1064,30 +1056,43 @@ namespace DetourList
             Bounds = bounds;
             var myStyle = style.GetItemStyle(this);
 
-            g.FillRectangle(myStyle.BackgroundBrush, bounds);
+            //if (Highlighted)
+            //    g.FillRectangle(myStyle.BackgroundBrush, bounds);
 
-            _CancelBox = new Rectangle(
-                bounds.X + myStyle.Indent + 3,
-                bounds.Y + 3,
-                bounds.Height - 6,
-                bounds.Height - 6
-            );
+            string cancelText = Item.Canceled ? "Uncancel" : "Cancel";
+            Size cancelTextSize = TextRenderer.MeasureText(cancelText, myStyle.Font);
 
             Size textSize = TextRenderer.MeasureText(Text, style.Font);
-            Rectangle textBox = new Rectangle(_CancelBox.Right + 3, bounds.Y + (bounds.Height - textSize.Height) / 2, textSize.Width, textSize.Height);
+            Rectangle textBox = new Rectangle(bounds.X + 3 + myStyle.Indent, bounds.Y + (bounds.Height - textSize.Height) / 2, textSize.Width, textSize.Height);
 
+            _CancelBox = new Rectangle(
+                textBox.Right + 3,
+                bounds.Y + 2,
+                cancelTextSize.Width + 6,
+                bounds.Height - 4
+            );
+            Rectangle cancelTextBox = new Rectangle(
+                _CancelBox.X + 3,
+                _CancelBox.Y + (_CancelBox.Height - cancelTextSize.Height) / 2,
+                cancelTextSize.Width,
+                cancelTextSize.Height
+            );
 
-            using (Brush b = new SolidBrush(Color.FromArgb(155, 52, 48)))
-                using (Pen p = new Pen(Color.White, 1))
-                    Painter.RenderCancelButton(g, _CancelBox, p, b);
+            using (Brush b = Item.Canceled ? new SolidBrush(UncanceledColor) : new SolidBrush(CanceledColor))
+                g.FillRectangle(_CancelButtonHot ? myStyle.BackgroundBrush : b, _CancelBox);
 
+            g.DrawRectangle(Pens.Black, _CancelBox);
+
+            Painter.RenderText(g, myStyle.Font, cancelText, cancelTextBox, Color.White);
+
+            Color c = Item.Canceled ? CanceledColor : myStyle.TextColor;
             if (Item.Canceled)
             {
                 using (Font f = new Font(myStyle.Font, FontStyle.Strikeout))
-                    Painter.RenderText(g, f, Text, textBox, myStyle.TextColor);
+                    Painter.RenderText(g, f, Text, textBox, c);
             }
             else
-                Painter.RenderText(g, myStyle.Font, Text, textBox, myStyle.TextColor);
+                Painter.RenderText(g, myStyle.Font, Text, textBox, c);
 
             return bounds.Bottom;
         }
@@ -1099,6 +1104,17 @@ namespace DetourList
             if (_CancelBox.Contains(e.Location))
             {
                 Item.Canceled = !Item.Canceled;
+            }
+        }
+
+        public override void HandleMouseMove(MouseEventArgs e)
+        {
+            bool hit = _CancelBox.Contains(e.Location);
+
+            if (hit != _CancelButtonHot)
+            {
+                _CancelButtonHot = hit;
+                FireInvalidate();
             }
         }
 
